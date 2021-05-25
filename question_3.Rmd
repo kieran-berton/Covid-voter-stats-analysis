@@ -1,0 +1,128 @@
+---
+title: 'W203 Lab 1, Question 3: Are survey respondents who have had someone in their home infected by COVID-19 more likely to disapprove of the way their governor is handling the pandemic?'
+author: "Tilman Bayer, Kieran Berton, Ruilan Liu, Toby Petty"
+output: pdf_document
+---
+## Importance and Context
+The COVID-19 Pandemic, first identified in Wuhan, China in December 2019, has caused over 500,000 deaths as of March 2021 in the United States, the highest death count of any nation in the world. Though the federal government labelled the outbreak a public health emergency on January 31st, 2020, responses by state governments have varied, with some imposing stringent lockdowns and curfews, others closing business and public spaces, and some imposing facemask mandates in public. 
+
+Despite this, the federal and state governments have faced sharp criticism for their handling of the pandemic, as infection rates and death tolls worsened for many states following the lifting of Coronavirus-related restrictions. Nevertheless some have defended the actions of state and local governments, citing the need for businesses to be open to serve public needs. In this study, we hope to learn more about the connection between a person’s level of exposure to the virus and their opinions on how state governments have handled the pandemic. We suspect that a person who contracts or lives with someone who contracts the Coronavirus is more likely to assign some of the blame for their circumstance to the government’s neglect of public health concerns. 
+
+Using data from the American National Election Study (ANES) 2020 Pre-Election Survey, we will compare approval for how governors have handled the pandemic between a population of respondents who have not been exposed to the virus and a population of respondents that either have contracted the virus or live with someone who has contracted the virus. As governors’ responses have varied on a state by state basis and we are looking at respondents on the national level, we cannot cite any particular actions that may have contributed to our results, nor can we make statements about the connection between public approval and state coronavirus responses for any particular state. However, the answer to this question could provide insight into the connection between the US population’s opinions on coronavirus restrictions and citizens’ level of exposure to the virus. We cannot make any statements about the causal connection between these two variables, as this data was merely observational and was collected from respondents at one moment in time, but we hope to gain a better understanding of how the two variables are correlated through this experimental setup.
+
+
+
+```{r load packages, echo=FALSE, message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2) 
+library(haven)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(magick)
+```
+
+
+```{r get data and see data shape, echo=FALSE, warning=FALSE, message=FALSE}
+
+raw_data <- data.frame(read_dta(file="./data/anes_timeseries_2020_stata_20210211.dta"))
+n_surveyed = nrow(raw_data)
+
+Q3 <- select(raw_data,V201145,V201624,V201625)
+
+portion <- sum(Q3$V201145[Q3$V201145==-9],Q3$V201145[Q3$V201145==-8])/nrow(Q3)
+summary_V201145 <- data.frame(table(Q3$V201145))
+colnames(summary_V201145) <- c("V201145 code","V201145 responses")
+summary_V201624 <- data.frame(table(Q3$V201624))
+colnames(summary_V201624) <- c("V201624 code","V201624 responses")
+summary_V201625 <- data.frame(table(Q3$V201625))
+colnames(summary_V201625) <- c("V201625 code","V201625 responses")
+
+
+Q3_valid <- subset(Q3,V201145!=-8 & V201145!=-9 & V201624!=-5 & V201624!=-9 & V201625!=-5 & V201625!=-9,
+                   select=V201145:V201625)
+
+dropped <- nrow(Q3) - nrow(Q3_valid)
+remaining <- nrow(Q3_valid)
+```
+
+## Description of Data
+Please refer to our report for question 1 for general remarks about the ANES dataset,^[To call out one aspect here: As advised by ANES, an accurate analysis based on this data would have to account for the survey weights included in the dataset. Per the instructors, we are ignoring them for the purposes of this labs project.]  As stated there, the ANES dataset contains responses from `r n_surveyed` respondents to approximately 700 questions concerning their political opinions, voting behaviors, as well as some qualitative questions about their opinions on social issues.
+
+We find 4 relevant variables in the dataset that can answer the question:
+
+*V201145 - PRE: Approve or disapprove R's governor handling COVID-19*
+
+*V201146 - PRE: How much approve/disapprove R's governor handling COVID-19*
+
+*V201624 - PRE: Anyone in household tested pos for COVID-19*
+
+*V201625 - PRE: Anyone in household COVID-19 based on symptoms*
+
+### Shape data
+Because the question is particularly interested in the likelihood of disapproval, not the degree of disapproval, we pick V201145 over V201146 in our analysis. In V201145, there are 2 codes, -8 (don't know) and -9 (refused), that are not informative about our analysis, so they are dropped. These data only count for a very small portion(`r round(portion*-100,2)`%) of the sample, as shown in Table 1, and won't largely change the result. The same holds true for V201624 and V201625 that -5(interview breakout) and -9(refused) could be excluded in our analysis. After reshaping the data, there are `r remaining` responses remaining. 
+
+### Re-encode data
+Now that we have V201145 responses in only code 1(approve) and 2(disapprove), we can re-encode it into 0 (approve) and 1 (disapprove) to become a dummy variable so that we could convert them into metric numbers and do a t-test directly without manipulations.
+
+
+```{r recode V201145, echo=FALSE, warning=FALSE, message=FALSE}
+
+kable(list(summary_V201145, summary_V201624, summary_V201625),
+      
+      caption = "Summary of Responses",
+      digits = c(2, 3), align = "cc")%>%
+  kable_styling(full_width = FALSE, position = "left")
+
+
+Q3_valid$V201145[Q3_valid$V201145==1] <- 0
+Q3_valid$V201145[Q3_valid$V201145==2] <- 1
+
+```
+
+
+```{r get covid/non-covid groups, echo=FALSE, warning=FALSE, message=FALSE}
+
+covid <- subset(Q3_valid, V201624 ==1 | V201625 == 1,select=V201145:V201625)
+non_covid <- subset(Q3_valid,V201624 !=1 & V201625 != 1,select=V201145:V201625)
+
+```
+
+### COVID vs. non-COVID group
+In the next step, we need to identify the group that was infected with COVID-19 so as to compare with the non-infected group. We decide to put respondents marked as 1 (Someone tested positive) in V201624 and 1 (Suspected of having COVID) in V201625 in the COVID group, because people who suspected of having COVID based on symptoms also went through a hard time even without testing positive and as a result, they could also hold negative opinions on their governors’ handling of pandemic. Besides, due to the limited public resources, many people suspected to have COVID didn’t get a chance to do the test. So we figure it’d be appropriate to include both variables into our analysis. As a result, the COVID group consists `r nrow(covid)` respondents while the non-COVID group has `r nrow(non_covid)` people.
+
+## Most appropriate test 
+We are going to use a two-tailed t-test, with $\alpha = 0.05$ (a standard value used in many political science analyses). 
+
+* **Null Hypothesis**: the ratios of disapproval among the COVID group and the non-COVID groups are the same. This ratio is equal to the mean of the variable we constructed above. 
+* **Alternative Hypothesis**: the difference between those ratios is non-zero.
+
+The usual assumptions for such a t-test are satisfied:
+
+* Since our (formerly categorical) random variable only takes on two values (0 and 1), we can regard it as a metric variable.
+* We can assume that the responses are i.i.d (with some minor limitations, e.g. respondents from the same household would obviously not have independent answers).
+* While the distribution is not normal (concentrated on 0 and 1), our sample size is sufficiently large to justify using a t-test.
+* We use a two-tailed test because we cannot rule out that people who had someone in their home infected could be _less_ likely to disapprove of their governors' way of handling the pandemic.
+
+We think this is the most appropriate test to use in this situation. A non-parametric test would have the disadvantage of lower statistical power (i.e. being less likely to reject the null hypothesis if it is not true). And since there is no natural correspondence between individuals in households with and without infections (and we don't have data allowing us to compare the same individual's opinion before and after an infection occurred in their household), a paired test would not make sense.
+
+## Test, results and interpretation
+```{r manual stat, echo=FALSE, warning=FALSE, message=FALSE}
+mu1 = mean(covid$V201145)
+mu2 = mean(non_covid$V201145)
+n1 = nrow(covid)
+n2 = nrow(non_covid)
+var1 = var(covid$V201145)
+var2 = var(non_covid$V201145)
+t_stat = (mu1-mu2)/(var1/n1 + var2/n2)^(1/2)
+```
+
+```{r t-test, echo=TRUE, warning=FALSE, message=FALSE}
+test <- t.test(covid$V201145,non_covid$V201145, alternative = "two.sided")
+```
+
+The two-tailed t-test result shows that the mean or the disapproval rate of the COVID group is `r round(mu1,2)` while the mean for the non-COVID group is `r round(mu2,2)`. `r round(mu1-mu2,2)` represents a difference where p-value = `r round(test$p.value,2)` is well beyond alpha=0.05. In other words, we fail to reject the null hypothesis that the difference of the two means are 0. 
+
+Based on our test, we would say that the survey respondents who have had someone in their home infected by COVID-19 show no statistically significant difference in disapproval of the way their governor is handling the pandemic compared with the ones who don't.
+
+ 
